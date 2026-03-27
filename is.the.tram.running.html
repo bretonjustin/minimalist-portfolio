@@ -18,9 +18,10 @@
     }
     h1 { font-size: 3rem; margin-bottom: 2rem; }
     .status { font-size: 8rem; font-weight: bold; }
-    .status.yes { color: #31d158; }
-    .status.no  { color: #ff3b30; }
-    .status.unknown { color: #ffd60a; }
+    .status.open { color: #31d158; }
+    .status.closed { color: #ff3b30; }
+    .status.hold { color: #ffd60a; }
+    .status.unknown { color: #9aa0a6; }
     .sub { margin-top: 1rem; font-size: 1rem; color: #aaa; max-width: 900px; padding: 0 1rem; }
     .tiny { margin-top: 0.5rem; font-size: 0.9rem; color: #777; }
   </style>
@@ -33,7 +34,6 @@
 
 <script>
 (() => {
-  // TODO: replace with your deployed Cloudflare Worker URL
   const WORKER_URL = "https://tram-status.breton-justin97.workers.dev/";
   const REFRESH_MS = 5 * 60 * 1000;
 
@@ -41,15 +41,20 @@
   const subEl    = document.getElementById("sub");
   const tinyEl   = document.getElementById("tiny");
 
-  function setStatus(state, details) {
-    statusEl.classList.remove("yes", "no", "unknown");
+  function setDisplay(state, detail) {
+    statusEl.classList.remove("open", "closed", "hold", "unknown");
     statusEl.classList.add(state);
-    statusEl.textContent = state === "yes" ? "YES" : state === "no" ? "NO" : "UNKNOWN";
-    subEl.textContent = details || "";
+
+    statusEl.textContent =
+      state === "open" ? "YES" :
+      state === "closed" ? "NO" :
+      state === "hold" ? "HOLD" : "UNKNOWN";
+
+    subEl.textContent = detail || "";
   }
 
   async function refresh() {
-    setStatus("unknown", "Loading live status…");
+    setDisplay("unknown", "Loading live status…");
     tinyEl.textContent = "";
 
     try {
@@ -57,13 +62,17 @@
       if (!res.ok) throw new Error(`Worker HTTP ${res.status}`);
       const data = await res.json();
 
-      if (data.running === true)       setStatus("yes", `${data.statusText || "Open"}${data.hoursText ? " • " + data.hoursText : ""}`);
-      else if (data.running === false) setStatus("no",  `${data.statusText || "Closed"}${data.hoursText ? " • " + data.hoursText : ""}`);
-      else                             setStatus("unknown", data.error || data.statusText || "Unknown");
+      const state = data.state || "unknown";
+      const statuses = Array.isArray(data.statuses) ? data.statuses : (data.statusText ? [data.statusText] : []);
+      const detail = [
+        statuses.length ? statuses.join(" / ") : null,
+        data.hoursText || null
+      ].filter(Boolean).join(" • ");
 
+      setDisplay(state, detail || data.error || "Unknown");
       tinyEl.textContent = `Retrieved: ${data.fetchedAt || new Date().toISOString()}`;
     } catch (e) {
-      setStatus("unknown", "Failed to load status.");
+      setDisplay("unknown", "Failed to load status.");
       tinyEl.textContent = e?.message ?? String(e);
     }
   }
