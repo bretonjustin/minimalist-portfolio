@@ -2,41 +2,121 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Tram Status</title>
   <style>
+    :root {
+      --bg: #111;
+      --fg: #fff;
+      --muted: #aaa;
+      --muted2: #777;
+
+      --open: #31d158;
+      --closed: #ff3b30;
+      --hold: #ffd60a;
+      --unknown: #9aa0a6;
+    }
+
+    * { box-sizing: border-box; }
+
     body {
       margin: 0;
       font-family: Arial, sans-serif;
+      min-height: 100svh;
+      background-color: var(--bg);
+      color: var(--fg);
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      text-align: center;
+
+      padding:
+        max(16px, env(safe-area-inset-top))
+        max(16px, env(safe-area-inset-right))
+        max(16px, env(safe-area-inset-bottom))
+        max(16px, env(safe-area-inset-left));
+    }
+
+    .wrap {
+      width: min(720px, 100%);
+      padding: 8px 0;
       display: flex;
       flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.8rem, 5.5vw, 3rem);
+      line-height: 1.1;
+      letter-spacing: 0.5px;
+    }
+
+    /* Container to constrain width so we can fit text inside it */
+    .status-box {
+      width: 100%;
+      display: flex;
       justify-content: center;
       align-items: center;
-      height: 100vh;
-      background-color: #111;
-      color: white;
-      text-align: center;
+      overflow: hidden; /* IMPORTANT: prevent bleed off-screen */
     }
-    h1 { font-size: 3rem; margin-bottom: 2rem; }
-    .status { font-size: 8rem; font-weight: bold; }
-    .status.open { color: #31d158; }
-    .status.closed { color: #ff3b30; }
-    .status.hold { color: #ffd60a; }
-    .status.unknown { color: #9aa0a6; }
-    .sub { margin-top: 1rem; font-size: 1rem; color: #aaa; max-width: 900px; padding: 0 1rem; }
-    .tiny { margin-top: 0.5rem; font-size: 0.9rem; color: #777; }
+
+    .status {
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+
+      /* start big, then JS will shrink if needed */
+      font-size: clamp(4.2rem, 22vw, 9rem);
+
+      white-space: nowrap; /* don't wrap YES/UNKNOWN onto multiple lines */
+      display: inline-block;
+      max-width: 100%;
+    }
+
+    .status.open { color: var(--open); }
+    .status.closed { color: var(--closed); }
+    .status.hold { color: var(--hold); }
+    .status.unknown { color: var(--unknown); }
+
+    .sub {
+      margin: 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 3.8vw, 1.25rem);
+      line-height: 1.35;
+    }
+
+    .tiny {
+      margin: 0;
+      color: var(--muted2);
+      font-size: clamp(0.9rem, 3.2vw, 1rem);
+      line-height: 1.35;
+      word-break: break-word;
+    }
   </style>
 </head>
 <body>
-  <h1>Is the tram running?</h1>
-  <div id="status" class="status unknown">…</div>
-  <div id="sub" class="sub">Loading live status…</div>
-  <div id="tiny" class="tiny"></div>
+  <div class="wrap">
+    <h1>Is the tram running?</h1>
+
+    <div class="status-box" id="statusBox">
+      <div id="status" class="status unknown">…</div>
+    </div>
+
+    <p id="sub" class="sub">Loading live status…</p>
+    <p id="tiny" class="tiny"></p>
+  </div>
 
 <script>
 (() => {
   const WORKER_URL = "https://tram-status.breton-justin97.workers.dev/";
   const REFRESH_MS = 5 * 60 * 1000;
 
+  const statusBoxEl = document.getElementById("statusBox");
   const statusEl = document.getElementById("status");
   const subEl    = document.getElementById("sub");
   const tinyEl   = document.getElementById("tiny");
@@ -51,6 +131,31 @@
       state === "hold" ? "HOLD" : "UNKNOWN";
 
     subEl.textContent = detail || "";
+
+    // Wait a tick for layout then fit
+    requestAnimationFrame(fitStatusText);
+  }
+
+  function fitStatusText() {
+    // Reset to CSS size first, then shrink if overflowing
+    statusEl.style.fontSize = ""; // clear inline override
+
+    const maxW = statusBoxEl.clientWidth;
+    if (!maxW) return;
+
+    // If it already fits, we're done
+    if (statusEl.scrollWidth <= maxW) return;
+
+    // Start from computed font-size and shrink down to a minimum
+    const computed = window.getComputedStyle(statusEl);
+    let size = parseFloat(computed.fontSize);
+    const min = 36; // px minimum to avoid becoming unreadable
+
+    // Reduce in small steps until it fits
+    while (size > min && statusEl.scrollWidth > maxW) {
+      size -= 2;
+      statusEl.style.fontSize = size + "px";
+    }
   }
 
   async function refresh() {
@@ -63,7 +168,10 @@
       const data = await res.json();
 
       const state = data.state || "unknown";
-      const statuses = Array.isArray(data.statuses) ? data.statuses : (data.statusText ? [data.statusText] : []);
+      const statuses = Array.isArray(data.statuses)
+        ? data.statuses
+        : (data.statusText ? [data.statusText] : []);
+
       const detail = [
         statuses.length ? statuses.join(" / ") : null,
         data.hoursText || null
@@ -76,6 +184,9 @@
       tinyEl.textContent = e?.message ?? String(e);
     }
   }
+
+  // Re-fit on resize/orientation changes too
+  window.addEventListener("resize", () => requestAnimationFrame(fitStatusText));
 
   refresh();
   setInterval(refresh, REFRESH_MS);
